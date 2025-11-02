@@ -10,13 +10,14 @@ class BlacklistManager(Star):
     def __init__(self, context: Context):
         super().__init__(context)
         
-        # 加载配置
-        self.config = self.load_config()
-        
         # 初始化黑名单数据
         self.user_blacklist: Set[str] = set()
         self.group_blacklist: Set[str] = set()
         self.data_file = os.path.join("data", "blacklist_data.json")
+        self.config_file = os.path.join("data", "blacklist_config.json")
+        
+        # 加载配置和黑名单数据
+        self.config = self.load_config()
         self.load_blacklist()
 
     def load_config(self):
@@ -30,25 +31,48 @@ class BlacklistManager(Star):
             "admin_roles": ["ADMIN"]      # 有权限管理黑名单的角色
         }
         
-        # 从配置文件加载或使用默认配置
-        config = self.context.config.load_config("blacklist_config", default_config)
-        
-        # 验证配置值
-        if config["auto_save_interval"] < 0:
-            config["auto_save_interval"] = 0
-            logger.warning("自动保存间隔不能为负数，已设置为0（禁用）")
-            
-        if config["max_blacklist_size"] < 1:
-            config["max_blacklist_size"] = 1000
-            logger.warning("最大黑名单数量不能小于1，已设置为1000")
-        
-        logger.info("黑名单插件配置加载完成")
-        return config
+        try:
+            if os.path.exists(self.config_file):
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    
+                # 确保所有配置项都存在，使用默认值填充缺失的项
+                for key, value in default_config.items():
+                    if key not in config:
+                        config[key] = value
+                        
+                # 验证配置值
+                if config["auto_save_interval"] < 0:
+                    config["auto_save_interval"] = 0
+                    logger.warning("自动保存间隔不能为负数，已设置为0（禁用）")
+                    
+                if config["max_blacklist_size"] < 1:
+                    config["max_blacklist_size"] = 1000
+                    logger.warning("最大黑名单数量不能小于1，已设置为1000")
+                
+                logger.info("黑名单插件配置加载完成")
+                return config
+            else:
+                # 如果配置文件不存在，创建默认配置
+                self.save_config(default_config)
+                return default_config
+                
+        except Exception as e:
+            logger.error(f"加载配置失败: {e}，使用默认配置")
+            return default_config
 
-    def save_config(self):
-        """保存插件配置"""
-        self.context.config.save_config("blacklist_config", self.config)
-        logger.info("黑名单插件配置已保存")
+    def save_config(self, config=None):
+        """保存插件配置到文件"""
+        if config is None:
+            config = self.config
+            
+        try:
+            os.makedirs(os.path.dirname(self.config_file), exist_ok=True)
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(config, f, ensure_ascii=False, indent=2)
+            logger.info("黑名单插件配置已保存")
+        except Exception as e:
+            logger.error(f"保存配置失败: {e}")
 
     def load_blacklist(self):
         """从文件加载黑名单数据"""
