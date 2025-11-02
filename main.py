@@ -3,13 +3,14 @@ from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 import json
 import os
-from typing import Dict, List, Set
+from typing import Dict, Set
 
-@register("astrbot_plugin_auto_accept_invite", "rpg636zjhi", "QQ群邀请自动同意和主动入群管理", "1.1.0")
+@register("qq_group_manager", "开发者", "QQ群邀请自动同意和主动入群管理", "1.0.0")
 class QQGroupManager(Star):
     def __init__(self, context: Context):
         super().__init__(context)
-        self.data_path = self.context.get_data_path(self)
+        # 使用正确的数据路径获取方式
+        self.data_path = os.path.join("data", "plugins", "qq_group_manager")
         self.blacklist_file = os.path.join(self.data_path, "blacklist.json")
         self.blacklist: Dict[str, Set[str]] = {
             "users": set(),  # 用户黑名单
@@ -60,7 +61,7 @@ class QQGroupManager(Star):
             if event.get_platform_name() != "aiocqhttp":
                 return
 
-            raw_event = event.raw_message
+            raw_event = event.message_obj.raw_message
             post_type = raw_event.get('post_type')
             
             # 处理群邀请请求
@@ -113,8 +114,9 @@ class QQGroupManager(Star):
                 if isinstance(event, AiocqhttpMessageEvent):
                     client = event.bot
                     # 注意：主动加群功能可能需要特定协议端支持
-                    await client.api.call_action('_set_group_join', group_id=group_id, approve=True)
-                    return True
+                    # 这里使用更通用的方法
+                    result = await client.api.call_action('_set_group_join', group_id=group_id, approve=True)
+                    return result is not None
             return False
         except Exception as e:
             logger.error(f"主动加入群失败: {e}")
@@ -139,7 +141,6 @@ class QQGroupManager(Star):
                 return
             
             # 判断是用户还是群（这里简单判断，实际可能需要更复杂的逻辑）
-            # 通常QQ号长度在5-10位，群号长度在6-11位，但这只是粗略判断
             if len(target) <= 10:
                 self.blacklist["users"].add(target)
                 yield event.plain_result(f"已添加用户 {target} 到黑名单")
