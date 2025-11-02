@@ -107,10 +107,10 @@
 
 ## 技术支持
 
-如有问题或建议，请访问 [GitHub仓库](https://github.com/rpg636zjhi) 提交Issue。
+如有问题或建议，请访问 [GitHub仓库](https://github.com/rpg636zjhi/astrbot_plugin_auto_accept_invite) 提交Issue。
 
 ---
 
-**插件作者：** rpg636zjhi 
+**插件作者：** rpg636zjhi
 **版本：** 1.1.0
 **兼容平台：** QQ

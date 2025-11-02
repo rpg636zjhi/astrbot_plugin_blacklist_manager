@@ -33,7 +33,7 @@ DEFAULT_CONF_SCHEMA = {
     "rpg636zjhi",
     "QQ群邀请自动同意（有黑名单拦截）和主动入群。",
     "1.1.0",
-    "https://github.com/rpg636zjhi"
+    "https://github.com/rpg636zjhi/astrbot_plugin_auto_accept_invite"
 )
 class AutoAcceptInvitePlugin(Star):
     def __init__(self, context: Context, config: Optional[dict] = None):
