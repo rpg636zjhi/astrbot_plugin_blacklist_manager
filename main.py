@@ -120,11 +120,10 @@ class BlacklistManager(Star):
             return False
         return True
 
-    # 黑名单检查 - 拦截黑名单用户或群组的消息
-    # 将这个检查放在最前面，确保在其他命令之前执行
-    @filter.event_message_type(filter.EventMessageType.ALL)
-    async def check_blacklist(self, event: AstrMessageEvent):
-        '''检查消息是否来自黑名单用户或群组'''
+    # 第一层拦截：高优先级事件监听器
+    @filter.event_message_type(filter.EventMessageType.ALL, priority=1)
+    async def check_blacklist_primary(self, event: AstrMessageEvent):
+        '''主要黑名单检查 - 高优先级'''
         # 检查是否启用拦截功能
         if not self.config["enable_interception"]:
             return
@@ -134,9 +133,7 @@ class BlacklistManager(Star):
         
         # 检查用户是否在黑名单中
         if sender_id in self.user_blacklist:
-            # 使用正确的方法获取消息内容
-            message_text = getattr(event, 'raw_message', '未知消息')
-            logger.info(f"拦截黑名单用户 {sender_id} 的消息: {message_text}")
+            logger.info(f"主要拦截器：拦截黑名单用户 {sender_id} 的消息")
             
             # 如果启用了拦截通知，发送提示消息
             if self.config["notify_on_intercept"] and self.config["intercept_message"]:
@@ -145,15 +142,13 @@ class BlacklistManager(Star):
                 except Exception as e:
                     logger.error(f"发送拦截通知失败: {e}")
             
-            # 停止事件传播
+            # 停止事件传播，防止其他插件处理
             event.stop_event()
             return
         
         # 检查群组是否在黑名单中（如果是群消息）
         if group_id and group_id in self.group_blacklist:
-            # 使用正确的方法获取消息内容
-            message_text = getattr(event, 'raw_message', '未知消息')
-            logger.info(f"拦截黑名单群组 {group_id} 的消息: {message_text}")
+            logger.info(f"主要拦截器：拦截黑名单群组 {group_id} 的消息")
             
             # 如果启用了拦截通知，发送提示消息
             if self.config["notify_on_intercept"] and self.config["intercept_message"]:
@@ -162,17 +157,63 @@ class BlacklistManager(Star):
                 except Exception as e:
                     logger.error(f"发送拦截通知失败: {e}")
             
-            # 停止事件传播
+            # 停止事件传播，防止其他插件处理
             event.stop_event()
             return
 
-    @filter.command_group("黑名单")
+    # 第二层拦截：低优先级事件监听器，确保拦截
+    @filter.event_message_type(filter.EventMessageType.ALL, priority=-1)
+    async def check_blacklist_fallback(self, event: AstrMessageEvent):
+        '''备用黑名单检查 - 低优先级'''
+        # 检查是否启用拦截功能
+        if not self.config["enable_interception"]:
+            return
+            
+        # 如果事件已经被停止，不需要再次处理
+        if event.is_stopped():
+            return
+            
+        sender_id = event.get_sender_id()
+        group_id = event.get_group_id()
+        
+        # 检查用户是否在黑名单中
+        if sender_id in self.user_blacklist:
+            logger.info(f"备用拦截器：拦截黑名单用户 {sender_id} 的消息")
+            
+            # 如果启用了拦截通知，发送提示消息
+            if self.config["notify_on_intercept"] and self.config["intercept_message"]:
+                try:
+                    yield event.plain_result(self.config["intercept_message"])
+                except Exception as e:
+                    logger.error(f"发送拦截通知失败: {e}")
+            
+            # 停止事件传播，防止其他插件处理
+            event.stop_event()
+            return
+        
+        # 检查群组是否在黑名单中（如果是群消息）
+        if group_id and group_id in self.group_blacklist:
+            logger.info(f"备用拦截器：拦截黑名单群组 {group_id} 的消息")
+            
+            # 如果启用了拦截通知，发送提示消息
+            if self.config["notify_on_intercept"] and self.config["intercept_message"]:
+                try:
+                    yield event.plain_result(self.config["intercept_message"])
+                except Exception as e:
+                    logger.error(f"发送拦截通知失败: {e}")
+            
+            # 停止事件传播，防止其他插件处理
+            event.stop_event()
+            return
+
+    # 第三层拦截：命令拦截器
+    @filter.command_group("黑名单", priority=1)
     @filter.permission_type(filter.PermissionType.ADMIN)
     def blacklist_group(self):
         '''用户黑名单管理'''
         pass
 
-    @blacklist_group.command("add")
+    @blacklist_group.command("add", priority=1)
     @filter.permission_type(filter.PermissionType.ADMIN)
     async def blacklist_add_user(self, event: AstrMessageEvent, qq_number: str):
         '''添加用户到黑名单
@@ -197,7 +238,7 @@ class BlacklistManager(Star):
         self.save_blacklist()
         yield event.plain_result(f"✅ 已成功将用户 {qq_number} 添加到黑名单")
 
-    @blacklist_group.command("remove")
+    @blacklist_group.command("remove", priority=1)
     @filter.permission_type(filter.PermissionType.ADMIN)
     async def blacklist_remove_user(self, event: AstrMessageEvent, qq_number: str):
         '''从黑名单移除用户
@@ -213,7 +254,7 @@ class BlacklistManager(Star):
         self.save_blacklist()
         yield event.plain_result(f"✅ 已成功将用户 {qq_number} 从黑名单移除")
 
-    @blacklist_group.command("list")
+    @blacklist_group.command("list", priority=1)
     @filter.permission_type(filter.PermissionType.ADMIN)
     async def blacklist_list_users(self, event: AstrMessageEvent):
         '''查看用户黑名单列表'''
@@ -228,13 +269,13 @@ class BlacklistManager(Star):
             
         yield event.plain_result(f"📋 用户黑名单列表 ({len(self.user_blacklist)}/{self.config['max_blacklist_size']}):\n{blacklist_str}{more_info}")
 
-    @filter.command_group("群黑名单")
+    @filter.command_group("群黑名单", priority=1)
     @filter.permission_type(filter.PermissionType.ADMIN)
     def group_blacklist_group(self):
         '''群组黑名单管理'''
         pass
 
-    @group_blacklist_group.command("add")
+    @group_blacklist_group.command("add", priority=1)
     @filter.permission_type(filter.PermissionType.ADMIN)
     async def group_blacklist_add(self, event: AstrMessageEvent, group_number: str):
         '''添加群组到黑名单
@@ -259,7 +300,7 @@ class BlacklistManager(Star):
         self.save_blacklist()
         yield event.plain_result(f"✅ 已成功将群组 {group_number} 添加到黑名单")
 
-    @group_blacklist_group.command("remove")
+    @group_blacklist_group.command("remove", priority=1)
     @filter.permission_type(filter.PermissionType.ADMIN)
     async def group_blacklist_remove(self, event: AstrMessageEvent, group_number: str):
         '''从黑名单移除群组
@@ -275,7 +316,7 @@ class BlacklistManager(Star):
         self.save_blacklist()
         yield event.plain_result(f"✅ 已成功将群组 {group_number} 从黑名单移除")
 
-    @group_blacklist_group.command("list")
+    @group_blacklist_group.command("list", priority=1)
     @filter.permission_type(filter.PermissionType.ADMIN)
     async def group_blacklist_list(self, event: AstrMessageEvent):
         '''查看群组黑名单列表'''
@@ -290,7 +331,7 @@ class BlacklistManager(Star):
             
         yield event.plain_result(f"📋 群组黑名单列表 ({len(self.group_blacklist)}/{self.config['max_blacklist_size']}):\n{blacklist_str}{more_info}")
 
-    @filter.command("黑名单状态")
+    @filter.command("黑名单状态", priority=1)
     @filter.permission_type(filter.PermissionType.ADMIN)
     async def blacklist_status(self, event: AstrMessageEvent):
         '''查看黑名单统计信息'''
@@ -309,13 +350,13 @@ class BlacklistManager(Star):
         yield event.plain_result(status_msg)
 
     # 配置管理命令
-    @filter.command_group("黑名单配置")
+    @filter.command_group("黑名单配置", priority=1)
     @filter.permission_type(filter.PermissionType.ADMIN)
     def config_group(self):
         '''黑名单插件配置管理'''
         pass
 
-    @config_group.command("查看")
+    @config_group.command("查看", priority=1)
     @filter.permission_type(filter.PermissionType.ADMIN)
     async def config_show(self, event: AstrMessageEvent):
         '''查看当前配置'''
@@ -333,7 +374,7 @@ class BlacklistManager(Star):
         )
         yield event.plain_result(config_msg)
 
-    @config_group.command("开关拦截")
+    @config_group.command("开关拦截", priority=1)
     @filter.permission_type(filter.PermissionType.ADMIN)
     async def toggle_interception(self, event: AstrMessageEvent):
         '''开启/关闭黑名单拦截功能'''
@@ -342,7 +383,7 @@ class BlacklistManager(Star):
         status = "启用" if self.config["enable_interception"] else "禁用"
         yield event.plain_result(f"✅ 已{status}黑名单拦截功能")
 
-    @config_group.command("开关通知")
+    @config_group.command("开关通知", priority=1)
     @filter.permission_type(filter.PermissionType.ADMIN)
     async def toggle_notify(self, event: AstrMessageEvent):
         '''开启/关闭拦截通知'''
@@ -351,7 +392,7 @@ class BlacklistManager(Star):
         status = "开启" if self.config["notify_on_intercept"] else "关闭"
         yield event.plain_result(f"✅ 已{status}拦截通知")
 
-    @config_group.command("设置最大数量")
+    @config_group.command("设置最大数量", priority=1)
     @filter.permission_type(filter.PermissionType.ADMIN)
     async def set_max_size(self, event: AstrMessageEvent, size: str):
         '''设置黑名单最大数量
@@ -372,7 +413,7 @@ class BlacklistManager(Star):
         self.save_config()
         yield event.plain_result(f"✅ 已设置黑名单最大数量为 {new_size}")
 
-    @config_group.command("设置拦截消息")
+    @config_group.command("设置拦截消息", priority=1)
     @filter.permission_type(filter.PermissionType.ADMIN)
     async def set_intercept_message(self, event: AstrMessageEvent, *, message: str):
         '''设置拦截时发送的消息
@@ -387,7 +428,7 @@ class BlacklistManager(Star):
         else:
             yield event.plain_result("✅ 已清空拦截消息")
 
-    @config_group.command("重置配置")
+    @config_group.command("重置配置", priority=1)
     @filter.permission_type(filter.PermissionType.ADMIN)
     async def reset_config(self, event: AstrMessageEvent):
         '''恢复默认配置'''
