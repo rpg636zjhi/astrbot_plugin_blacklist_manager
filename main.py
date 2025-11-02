@@ -27,7 +27,7 @@ class BlacklistManager(Star):
             "notify_on_intercept": True,  # 拦截时是否通知
             "auto_save_interval": 300,    # 自动保存间隔（秒），0表示禁用自动保存
             "max_blacklist_size": 1000,   # 最大黑名单数量
-            "intercept_message": "❌ 您已被加入黑名单，消息无法送达",  # 拦截时发送的消息
+            "intercept_message": "",      # 拦截时发送的消息（已删除默认消息）
             "admin_roles": ["ADMIN"]      # 有权限管理黑名单的角色
         }
         
@@ -283,7 +283,7 @@ class BlacklistManager(Star):
             f"• 拦截通知: {'✅ 开启' if self.config['notify_on_intercept'] else '❌ 关闭'}\n"
             f"• 自动保存: {auto_save_display}\n"
             f"• 最大数量: {self.config['max_blacklist_size']}\n"
-            f"• 拦截消息: {self.config['intercept_message']}"
+            f"• 拦截消息: {'✅ 已设置' if self.config['intercept_message'] else '❌ 未设置'}"
         )
         yield event.plain_result(config_msg)
 
@@ -334,13 +334,12 @@ class BlacklistManager(Star):
         Args:
             message(string): 拦截消息内容
         '''
-        if not message.strip():
-            yield event.plain_result("❌ 消息内容不能为空")
-            return
-            
         self.config["intercept_message"] = message.strip()
         self.save_config()
-        yield event.plain_result(f"✅ 已设置拦截消息为: {message}")
+        if message.strip():
+            yield event.plain_result(f"✅ 已设置拦截消息为: {message}")
+        else:
+            yield event.plain_result("✅ 已清空拦截消息")
 
     @config_group.command("重置配置")
     @filter.permission_type(filter.PermissionType.ADMIN)
@@ -351,7 +350,7 @@ class BlacklistManager(Star):
             "notify_on_intercept": True,
             "auto_save_interval": 300,
             "max_blacklist_size": 1000,
-            "intercept_message": "❌ 您已被加入黑名单，消息无法送达",
+            "intercept_message": "",  # 已删除默认消息
             "admin_roles": ["ADMIN"]
         }
         self.config = default_config
