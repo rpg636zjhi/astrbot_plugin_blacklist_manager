@@ -5,16 +5,16 @@ import json
 import os
 from typing import Dict, Set
 
-@register("astrbot_plugin_auto_accept_invite", "rpg636zjhi", "QQ群邀请自动同意（有黑名单拦截）和主动入群。", "1.1.0")
-class QQGroupManager(Star):
+@register("auto_accept_invite", "开发者", "QQ群邀请自动同意和主动入群管理", "1.0.0")
+class Main(Star):
     def __init__(self, context: Context):
         super().__init__(context)
-        # 使用相对路径来存储数据
-        self.data_path = os.path.join("data", "plugins", "qq_group_manager")
+        # 使用简单的数据存储路径
+        self.data_path = "data/plugins/auto_accept_invite"
         self.blacklist_file = os.path.join(self.data_path, "blacklist.json")
         self.blacklist: Dict[str, Set[str]] = {
-            "users": set(),  # 用户黑名单
-            "groups": set()  # 群黑名单
+            "users": set(),
+            "groups": set()
         }
         self.load_blacklist()
 
@@ -41,7 +41,6 @@ class QQGroupManager(Star):
                     "users": list(self.blacklist["users"]),
                     "groups": list(self.blacklist["groups"])
                 }, f, ensure_ascii=False, indent=2)
-            logger.info("黑名单数据保存成功")
         except Exception as e:
             logger.error(f"保存黑名单数据失败: {e}")
 
@@ -57,29 +56,25 @@ class QQGroupManager(Star):
     async def handle_group_invite(self, event: AstrMessageEvent):
         """处理群邀请事件"""
         try:
-            # 检查是否是QQ平台
             if event.get_platform_name() != "aiocqhttp":
                 return
 
-            raw_event = event.message_obj.raw_message
-            post_type = raw_event.get('post_type')
+            raw_msg = event.message_obj.raw_message
+            post_type = raw_msg.get('post_type')
             
-            # 处理群邀请请求
-            if post_type == 'request' and raw_event.get('request_type') == 'group':
-                sub_type = raw_event.get('sub_type')
-                if sub_type == 'invite':  # 群邀请
-                    user_id = str(raw_event.get('user_id'))
-                    group_id = str(raw_event.get('group_id'))
+            if post_type == 'request' and raw_msg.get('request_type') == 'group':
+                sub_type = raw_msg.get('sub_type')
+                if sub_type == 'invite':
+                    user_id = str(raw_msg.get('user_id'))
+                    group_id = str(raw_msg.get('group_id'))
                     
-                    # 检查黑名单
                     if self.is_in_blacklist(user_id=user_id, group_id=group_id):
                         logger.info(f"拦截黑名单邀请: 用户{user_id} 邀请加入群{group_id}")
-                        await self.reject_group_invite(event, raw_event.get('flag'))
+                        await self.reject_group_invite(event, raw_msg.get('flag'))
                         return
                     
-                    # 自动同意
                     logger.info(f"自动同意群邀请: 用户{user_id} 邀请加入群{group_id}")
-                    await self.accept_group_invite(event, raw_event.get('flag'))
+                    await self.accept_group_invite(event, raw_msg.get('flag'))
                     
         except Exception as e:
             logger.error(f"处理群邀请时出错: {e}")
@@ -106,21 +101,6 @@ class QQGroupManager(Star):
         except Exception as e:
             logger.error(f"拒绝群邀请失败: {e}")
 
-    async def join_group(self, event: AstrMessageEvent, group_id: str):
-        """主动加入群"""
-        try:
-            if event.get_platform_name() == "aiocqhttp":
-                from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import AiocqhttpMessageEvent
-                if isinstance(event, AiocqhttpMessageEvent):
-                    client = event.bot
-                    # 尝试使用主动加群API
-                    result = await client.api.call_action('_set_group_join', group_id=group_id, approve=True)
-                    return result is not None
-            return False
-        except Exception as e:
-            logger.error(f"主动加入群失败: {e}")
-            return False
-
     @filter.command_group("黑名单")
     def blacklist_group(self):
         """黑名单管理指令组"""
@@ -129,17 +109,12 @@ class QQGroupManager(Star):
     @blacklist_group.command("add")
     @filter.permission_type(filter.PermissionType.ADMIN)
     async def blacklist_add(self, event: AstrMessageEvent, target: str):
-        """添加黑名单
-        
-        Args:
-            target(string): QQ号或QQ群号
-        """
+        """添加黑名单"""
         try:
             if not target.isdigit():
                 yield event.plain_result("请输入有效的QQ号或QQ群号")
                 return
             
-            # 判断是用户还是群
             if len(target) <= 10:
                 self.blacklist["users"].add(target)
                 yield event.plain_result(f"已添加用户 {target} 到黑名单")
@@ -182,11 +157,7 @@ class QQGroupManager(Star):
     @blacklist_group.command("remove")
     @filter.permission_type(filter.PermissionType.ADMIN)
     async def blacklist_remove(self, event: AstrMessageEvent, target: str):
-        """移除黑名单
-        
-        Args:
-            target(string): QQ号或QQ群号
-        """
+        """移除黑名单"""
         try:
             removed = False
             if target in self.blacklist["users"]:
@@ -207,53 +178,6 @@ class QQGroupManager(Star):
         except Exception as e:
             logger.error(f"移除黑名单失败: {e}")
             yield event.plain_result("移除黑名单失败")
-
-    @blacklist_group.command("clear")
-    @filter.permission_type(filter.PermissionType.ADMIN)
-    async def blacklist_clear(self, event: AstrMessageEvent):
-        """清空黑名单"""
-        try:
-            user_count = len(self.blacklist["users"])
-            group_count = len(self.blacklist["groups"])
-            
-            self.blacklist["users"].clear()
-            self.blacklist["groups"].clear()
-            self.save_blacklist()
-            
-            yield event.plain_result(f"已清空黑名单（移除了{user_count}个用户和{group_count}个群）")
-            
-        except Exception as e:
-            logger.error(f"清空黑名单失败: {e}")
-            yield event.plain_result("清空黑名单失败")
-
-    @filter.command("主动入群")
-    @filter.permission_type(filter.PermissionType.ADMIN)
-    async def join_group_command(self, event: AstrMessageEvent, group_id: str):
-        """主动加入指定QQ群
-        
-        Args:
-            group_id(string): 要加入的QQ群号
-        """
-        try:
-            if not group_id.isdigit():
-                yield event.plain_result("请输入有效的QQ群号")
-                return
-            
-            if self.is_in_blacklist(group_id=group_id):
-                yield event.plain_result(f"群 {group_id} 在黑名单中，无法加入")
-                return
-            
-            yield event.plain_result(f"正在尝试加入群 {group_id}...")
-            
-            success = await self.join_group(event, group_id)
-            if success:
-                yield event.plain_result(f"已发送加入群 {group_id} 的请求")
-            else:
-                yield event.plain_result(f"加入群 {group_id} 失败，请检查协议端是否支持此功能")
-                
-        except Exception as e:
-            logger.error(f"主动入群指令执行失败: {e}")
-            yield event.plain_result("主动入群失败")
 
     async def terminate(self):
         """插件卸载时保存数据"""
