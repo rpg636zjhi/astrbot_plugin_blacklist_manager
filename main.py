@@ -5,11 +5,11 @@ import json
 import os
 from typing import Dict, Set
 
-@register("qq_group_manager", "开发者", "QQ群邀请自动同意和主动入群管理", "1.0.0")
+@register("astrbot_plugin_auto_accept_invite", "rpg636zjhi", "QQ群邀请自动同意（有黑名单拦截）和主动入群。", "1.1.0")
 class QQGroupManager(Star):
     def __init__(self, context: Context):
         super().__init__(context)
-        # 使用正确的数据路径获取方式
+        # 使用相对路径来存储数据
         self.data_path = os.path.join("data", "plugins", "qq_group_manager")
         self.blacklist_file = os.path.join(self.data_path, "blacklist.json")
         self.blacklist: Dict[str, Set[str]] = {
@@ -113,8 +113,7 @@ class QQGroupManager(Star):
                 from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import AiocqhttpMessageEvent
                 if isinstance(event, AiocqhttpMessageEvent):
                     client = event.bot
-                    # 注意：主动加群功能可能需要特定协议端支持
-                    # 这里使用更通用的方法
+                    # 尝试使用主动加群API
                     result = await client.api.call_action('_set_group_join', group_id=group_id, approve=True)
                     return result is not None
             return False
@@ -140,7 +139,7 @@ class QQGroupManager(Star):
                 yield event.plain_result("请输入有效的QQ号或QQ群号")
                 return
             
-            # 判断是用户还是群（这里简单判断，实际可能需要更复杂的逻辑）
+            # 判断是用户还是群
             if len(target) <= 10:
                 self.blacklist["users"].add(target)
                 yield event.plain_result(f"已添加用户 {target} 到黑名单")
@@ -169,10 +168,10 @@ class QQGroupManager(Star):
             result = "黑名单列表:\n"
             
             if self.blacklist["users"]:
-                result += f"用户黑名单({user_count}个):\n" + ", ".join(self.blacklist["users"]) + "\n"
+                result += f"用户黑名单({user_count}个):\n" + ", ".join(sorted(self.blacklist["users"])) + "\n"
             
             if self.blacklist["groups"]:
-                result += f"群黑名单({group_count}个):\n" + ", ".join(self.blacklist["groups"])
+                result += f"群黑名单({group_count}个):\n" + ", ".join(sorted(self.blacklist["groups"]))
             
             yield event.plain_result(result)
             
@@ -208,6 +207,24 @@ class QQGroupManager(Star):
         except Exception as e:
             logger.error(f"移除黑名单失败: {e}")
             yield event.plain_result("移除黑名单失败")
+
+    @blacklist_group.command("clear")
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    async def blacklist_clear(self, event: AstrMessageEvent):
+        """清空黑名单"""
+        try:
+            user_count = len(self.blacklist["users"])
+            group_count = len(self.blacklist["groups"])
+            
+            self.blacklist["users"].clear()
+            self.blacklist["groups"].clear()
+            self.save_blacklist()
+            
+            yield event.plain_result(f"已清空黑名单（移除了{user_count}个用户和{group_count}个群）")
+            
+        except Exception as e:
+            logger.error(f"清空黑名单失败: {e}")
+            yield event.plain_result("清空黑名单失败")
 
     @filter.command("主动入群")
     @filter.permission_type(filter.PermissionType.ADMIN)
