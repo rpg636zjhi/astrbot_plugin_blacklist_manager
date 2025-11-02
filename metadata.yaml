@@ -1,6 +1,6 @@
 name: astrbot_plugin_auto_accept_invite
 display_name: 申请与自动同意进群
 desc: QQ群邀请自动同意（有黑名单拦截）和主动入群。
-version: v1.1.0
+version: v1.1.1
 author: rpg636zjhi
 repo: https://github.com/rpg636zjhi/astrbot_plugin_auto_accept_invite

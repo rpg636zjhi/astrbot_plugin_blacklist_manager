@@ -3,20 +3,20 @@ from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 import json
 import os
+import asyncio
 from typing import Dict, Set
 
-@register("auto_accept_invite", "开发者", "QQ群邀请自动同意和主动入群管理", "1.0.0")
+@register("auto_accept_invite", "rpg636zjhi", "QQ群邀请自动同意和主动入群管理", "1.1.1")
 class Main(Star):
     def __init__(self, context: Context):
         super().__init__(context)
-        # 使用简单的数据存储路径
         self.data_path = "data/plugins/auto_accept_invite"
         self.blacklist_file = os.path.join(self.data_path, "blacklist.json")
-        self.blacklist: Dict[str, Set[str]] = {
-            "users": set(),
-            "groups": set()
-        }
+        self.blacklist: Dict[str, Set[str]] = {"users": set(), "groups": set()}
         self.load_blacklist()
+        
+        # 启动定时任务检查已加入的群是否在黑名单中
+        asyncio.create_task(self.check_group_blacklist())
 
     def load_blacklist(self):
         """加载黑名单数据"""
@@ -52,6 +52,49 @@ class Main(Star):
             return True
         return False
 
+    async def check_group_blacklist(self):
+        """定期检查并退出黑名单群"""
+        await asyncio.sleep(10)  # 等待系统启动完成
+        while True:
+            try:
+                # 获取所有平台
+                platforms = self.context.platform_manager.get_insts()
+                for platform in platforms:
+                    # 只检查aiocqhttp平台
+                    if platform.name == "aiocqhttp":
+                        # 尝试获取群列表
+                        try:
+                            # 注意：这里需要根据实际API调整
+                            # 不同协议端获取群列表的方法可能不同
+                            if hasattr(platform, 'get_group_list'):
+                                group_list = await platform.get_group_list()
+                                for group in group_list:
+                                    group_id = str(group.get('group_id'))
+                                    if self.is_in_blacklist(group_id=group_id):
+                                        logger.info(f"检测到在黑名单中的群 {group_id}，正在退出...")
+                                        await self.leave_group(platform, group_id)
+                        except Exception as e:
+                            logger.error(f"获取群列表失败: {e}")
+                
+                # 每5分钟检查一次
+                await asyncio.sleep(300)
+            except Exception as e:
+                logger.error(f"检查群黑名单时出错: {e}")
+                await asyncio.sleep(300)  # 出错后等待5分钟再重试
+
+    async def leave_group(self, platform, group_id: str):
+        """退出群"""
+        try:
+            if hasattr(platform, 'call_action'):
+                await platform.call_action('set_group_leave', group_id=group_id, is_dismiss=False)
+                logger.info(f"已退出黑名单群 {group_id}")
+            elif hasattr(platform, 'client'):
+                client = platform.client
+                await client.api.call_action('set_group_leave', group_id=group_id, is_dismiss=False)
+                logger.info(f"已退出黑名单群 {group_id}")
+        except Exception as e:
+            logger.error(f"退出群 {group_id} 失败: {e}")
+
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def handle_group_invite(self, event: AstrMessageEvent):
         """处理群邀请事件"""
@@ -79,6 +122,33 @@ class Main(Star):
         except Exception as e:
             logger.error(f"处理群邀请时出错: {e}")
 
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
+    async def handle_group_message(self, event: AstrMessageEvent):
+        """处理群消息，检查是否在黑名单群中"""
+        try:
+            if event.get_platform_name() != "aiocqhttp":
+                return
+            
+            group_id = event.get_group_id()
+            if group_id and self.is_in_blacklist(group_id=group_id):
+                logger.info(f"检测到在黑名单群 {group_id} 中，正在退出...")
+                await self.leave_group_from_event(event, group_id)
+                
+        except Exception as e:
+            logger.error(f"处理群消息时出错: {e}")
+
+    async def leave_group_from_event(self, event: AstrMessageEvent, group_id: str):
+        """通过事件退出群"""
+        try:
+            if event.get_platform_name() == "aiocqhttp":
+                from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import AiocqhttpMessageEvent
+                if isinstance(event, AiocqhttpMessageEvent):
+                    client = event.bot
+                    await client.api.call_action('set_group_leave', group_id=group_id, is_dismiss=False)
+                    logger.info(f"已退出黑名单群 {group_id}")
+        except Exception as e:
+            logger.error(f"退出群 {group_id} 失败: {e}")
+
     async def accept_group_invite(self, event: AstrMessageEvent, flag: str):
         """同意群邀请"""
         try:
@@ -103,7 +173,6 @@ class Main(Star):
 
     @filter.command_group("黑名单")
     def blacklist_group(self):
-        """黑名单管理指令组"""
         pass
 
     @blacklist_group.command("add")
@@ -179,6 +248,43 @@ class Main(Star):
             logger.error(f"移除黑名单失败: {e}")
             yield event.plain_result("移除黑名单失败")
 
+    @filter.command("退出黑名单群")
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    async def leave_blacklist_groups(self, event: AstrMessageEvent):
+        """手动触发退出所有黑名单群"""
+        try:
+            yield event.plain_result("正在检查并退出黑名单群...")
+            
+            # 获取所有平台
+            platforms = self.context.platform_manager.get_insts()
+            left_groups = []
+            
+            for platform in platforms:
+                # 只检查aiocqhttp平台
+                if platform.name == "aiocqhttp":
+                    # 尝试获取群列表
+                    try:
+                        # 注意：这里需要根据实际API调整
+                        # 不同协议端获取群列表的方法可能不同
+                        if hasattr(platform, 'get_group_list'):
+                            group_list = await platform.get_group_list()
+                            for group in group_list:
+                                group_id = str(group.get('group_id'))
+                                if self.is_in_blacklist(group_id=group_id):
+                                    logger.info(f"检测到在黑名单中的群 {group_id}，正在退出...")
+                                    await self.leave_group(platform, group_id)
+                                    left_groups.append(group_id)
+                    except Exception as e:
+                        logger.error(f"获取群列表失败: {e}")
+            
+            if left_groups:
+                yield event.plain_result(f"已退出以下黑名单群: {', '.join(left_groups)}")
+            else:
+                yield event.plain_result("未在黑名单群中")
+                
+        except Exception as e:
+            logger.error(f"退出黑名单群时出错: {e}")
+            yield event.plain_result("退出黑名单群时出错")
+
     async def terminate(self):
-        """插件卸载时保存数据"""
         self.save_blacklist()
