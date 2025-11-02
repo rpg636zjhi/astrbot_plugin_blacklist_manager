@@ -1,6 +1,6 @@
 name: astrbot_plugin_blacklist_manager
 display_name: 黑名单管理
 desc: 该插件提供了用户和群组的黑名单管理功能，可以拦截黑名单用户或群组的消息，确保机器人运行环境的安全性和可控性。
-version: v1.0.0
+version: v1.1.0
 author: rpg636zjhi
 repo: https://github.com/rpg636zjhi/astrbot_plugin_blacklist_manager
