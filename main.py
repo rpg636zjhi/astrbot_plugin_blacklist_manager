@@ -3,6 +3,7 @@ from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 import json
 import os
+import asyncio
 from typing import Set
 
 @register("auto_leave", "开发者", "自动退群插件", "1.0.0")
@@ -69,7 +70,9 @@ class AutoLeave(Star):
         if not event.is_private_chat():
             current_group = event.get_group_id()
             if current_group == group_number:
-                await self._leave_group(event, group_number)
+                # 使用 yield from 而不是 await
+                async for result in self._leave_group(event, group_number):
+                    yield result
 
     @filter.command("移除黑名单群")
     @filter.permission_type(filter.PermissionType.ADMIN)
@@ -101,8 +104,10 @@ class AutoLeave(Star):
         """执行退群操作"""
         try:
             # 先发送退群通知
-            from astrbot.api.message_components import Plain
             yield event.plain_result("该群已被管理员拉黑，机器人将自动退出。")
+            
+            # 等待一下确保消息发送成功
+            await asyncio.sleep(1)
             
             # 执行退群操作
             if event.get_platform_name() == "aiocqhttp":
@@ -126,8 +131,38 @@ class AutoLeave(Star):
         # 检查当前群是否在黑名单中
         if group_id in self.group_blacklist:
             logger.info(f"检测到在黑名单群 {group_id} 中，准备退群")
-            await self._leave_group(event, group_id)
+            # 使用 yield from 而不是 await
+            async for result in self._leave_group(event, group_id):
+                yield result
             event.stop_event()
+
+    @filter.command("测试退群")
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    async def test_leave(self, event: AstrMessageEvent):
+        '''测试退群功能（仅在当前群中有效）'''
+        # 检查是否为群聊
+        if event.is_private_chat():
+            yield event.plain_result("此命令仅在群聊中有效")
+            return
+            
+        group_id = event.get_group_id()
+        if group_id:
+            yield event.plain_result(f"正在测试退群功能，将在3秒后退出群 {group_id}...")
+            
+            # 等待3秒
+            await asyncio.sleep(3)
+            
+            # 发送测试退群通知
+            yield event.plain_result("这是测试退群功能，机器人将退出此群")
+            
+            # 等待一下确保消息发送成功
+            await asyncio.sleep(1)
+            
+            # 执行退群 - 使用 yield from 而不是 await
+            async for result in self._leave_group(event, group_id):
+                yield result
+        else:
+            yield event.plain_result("无法获取群号")
 
     async def terminate(self):
         '''插件卸载时的清理工作'''
